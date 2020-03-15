@@ -17,22 +17,8 @@ class ESN(object):
 		self.leak = leak
 		self.activation = activation
 
-	# call this function at the end of every reservoir generation
-	def _post_reservoir_generation(self):
-		# set initial state
-		self.state = np.zeros((self.reservoir_size(), 1))
-		# connect layers
-		ressize = self.reservoir_size()
-		self.input_weights = np.random.rand(ressize, self.input_size)
-		if self.readout_size > 0: # if there will be read-out
-			self.readout_weights = np.random.rand(self.readout_size, \
-											  	  self.input_size+ressize)
-
-	def random_reservoir(self, size, connectivity, spectral_radius=None):
-		self.reservoir_weights = np.random.rand(size, size) * 10
-		self.make_sparse(connectivity)
-		self.set_spectral_radius(spectral_radius) # handles None
-		self._post_reservoir_generation()
+	# RESERVOIR
+	# Utility
 
 	def make_sparse(self, connectivity):
 		for i in range(self.reservoir_size()):
@@ -52,13 +38,67 @@ class ESN(object):
 		if spectral_radius != None:
 			self.reservoir_weights *= (spectral_radius / self.max_abs_eigval())
 
-	def inject_input(self, input_data):
-		input_data = input_data.copy()
-		input_data.insert(0, self.bias) # add bias
-		self.input = np.array([input_data]).T
+	# Main
+	
+	def _post_reservoir_generation(self): # call after every reservoir generation
+		# set initial state
+		self.state = np.zeros((self.reservoir_size(), 1))
+		# connect layers
+		ressize = self.reservoir_size()
+		self.input_weights = np.random.rand(ressize, self.input_size)
+		if self.readout_size > 0: # if there will be read-out
+			self.readout_weights = np.random.rand(self.readout_size, \
+											  	  self.input_size+ressize)
 
-	def extended_state(self):
-		return np.concatenate((self.input, self.state), axis=0)
+	def random_reservoir(self, size, connectivity, spectral_radius=None):
+		self.reservoir_weights = np.random.rand(size, size) * 10
+		self.make_sparse(connectivity)
+		self.set_spectral_radius(spectral_radius) # handles None
+		self._post_reservoir_generation()
+
+	def unit_circle_reservoir(self, size, dense=False, spectral_radius=None):
+		# generates a reservoir whose eigen-values are conjugate pairs
+		# size must be even
+		size += (size % 2) # if odd, add 1
+		n = size
+		# angle difference between eigenvaues
+		diff = 2.0*(np.pi)/n
+		# offset = diff / 2.0 # can be used to avoid 1 as an eigen-value
+		offset = 0 
+		# first one is offset, last one is np.pi-offset
+		# angles for the eigenvalues on the upper half of the unit circle
+		theta_up = [t*diff + offset for t in range(n//2)] # a + ib
+		eigval_up_real = [np.cos(t) for t in theta_up]
+		eigval_up_img = [np.sin(t) for t in theta_up]
+
+		block_matrix = np.array([[0.0 for j in range(n)] for i in range(n)])
+		for i in range(n//2):
+			k = 2*i
+			block_matrix[k][k] = eigval_up_real[i]
+			block_matrix[k][k+1] = (-1)*eigval_up_img[i]
+			block_matrix[k+1][k] = eigval_up_img[i]
+			block_matrix[k+1][k+1] = eigval_up_real[i]
+		weight_matrix = None
+		# make dense: get rid of all of the zeros in the matrix
+		if dense:
+		# multiplay with a real matrix from left and its inverse from right
+			random_matrix = np.random.rand(n, n)
+			while np.linalg.det(random_matrix) == 0.0:
+				random_matrix = np.random.rand(n, n)
+			random_matrix_inv = np.linalg.inv(random_matrix)
+			weight_matrix = np.matmul(np.matmul(random_matrix, block_matrix), \
+										random_matrix_inv)
+		else:
+			weight_matrix = block_matrix
+
+		self.reservoir_weights = weight_matrix
+		# if the spectral radius is non-None, it's not a unit circle anymore
+		self.set_spectral_radius(spectral_radius) # handles None
+		self._post_reservoir_generation()
+
+	
+	# OPERATION
+	# Utility
 
 	def _state_update(self):
 		if not np.any(self.reservoir_weights):
@@ -73,8 +113,14 @@ class ESN(object):
 		if self.readout_size > 0:
 			self.readout = self.readout_weights @ self.extended_state()
 
-	# during training, there is no need to read out
-	def iterate_without_readout(self, input_data):
+	# Main
+
+	def inject_input(self, input_data):
+		input_data = input_data.copy()
+		input_data.insert(0, self.bias) # add bias
+		self.input = np.array([input_data]).T
+	
+	def iterate_without_readout(self, input_data): # during training, there is no need to read out
 		self.inject_input(input_data)
 		self._state_update()
 
@@ -85,6 +131,12 @@ class ESN(object):
 	def run(self, input_signal):
 		for input_data in input_signal:
 			self.iterate(input_data)
+
+	def extended_state(self):
+		return np.concatenate((self.input, self.state), axis=0)
+
+	def get_readout_weights(self):
+		return self.readout.copy()
 
 	def train(self, length, transient, input_signal, target_signal, \
 			  regression='linear', ridge_coefficient=0.1, noise=None, \
@@ -184,46 +236,3 @@ class ESN(object):
 			NRMSE = [RMSE[d]/np.var(target_signal_T[d]) for d \
 														in range(self.readout_size)]
 			return (sum(NRMSE)/self.readout_size) # NRMSE
-
-	def get_readout_weights(self):
-		return self.readout.copy()
-
-	def unit_circle_reservoir(self, size, dense=False, spectral_radius=None):
-		# generates a reservoir whose eigen-values are conjugate pairs
-		# size must be even
-		size += (size % 2) # if odd, add 1
-		n = size
-		# angle difference between eigenvaues
-		diff = 2.0*(np.pi)/n
-		# offset = diff / 2.0 # can be used to avoid 1 as an eigen-value
-		offset = 0 
-		# first one is offset, last one is np.pi-offset
-		# angles for the eigenvalues on the upper half of the unit circle
-		theta_up = [t*diff + offset for t in range(n//2)] # a + ib
-		eigval_up_real = [np.cos(t) for t in theta_up]
-		eigval_up_img = [np.sin(t) for t in theta_up]
-
-		block_matrix = np.array([[0.0 for j in range(n)] for i in range(n)])
-		for i in range(n//2):
-			k = 2*i
-			block_matrix[k][k] = eigval_up_real[i]
-			block_matrix[k][k+1] = (-1)*eigval_up_img[i]
-			block_matrix[k+1][k] = eigval_up_img[i]
-			block_matrix[k+1][k+1] = eigval_up_real[i]
-		weight_matrix = None
-		# make dense: get rid of all of the zeros in the matrix
-		if dense:
-		# multiplay with a real matrix from left and its inverse from right
-			random_matrix = np.random.rand(n, n)
-			while np.linalg.det(random_matrix) == 0.0:
-				random_matrix = np.random.rand(n, n)
-			random_matrix_inv = np.linalg.inv(random_matrix)
-			weight_matrix = np.matmul(np.matmul(random_matrix, block_matrix), \
-										random_matrix_inv)
-		else:
-			weight_matrix = block_matrix
-
-		self.reservoir_weights = weight_matrix
-		# if the spectral radius is non-None, it's not a unit circle anymore
-		self.set_spectral_radius(spectral_radius) # handles None
-		self._post_reservoir_generation()
