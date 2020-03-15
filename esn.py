@@ -24,8 +24,9 @@ class ESN(object):
 		# connect layers
 		ressize = self.reservoir_size()
 		self.input_weights = np.random.rand(ressize, self.input_size)
-		self.readout_weights = np.random.rand(self.readout_size, \
-											  self.input_size+ressize)
+		if self.readout_size > 0: # if there will be read-out
+			self.readout_weights = np.random.rand(self.readout_size, \
+											  	  self.input_size+ressize)
 
 	def random_reservoir(self, size, connectivity, spectral_radius=None):
 		self.reservoir_weights = np.random.rand(size, size) * 10
@@ -69,7 +70,8 @@ class ESN(object):
 		self.state = (1-self.leak)*self.state + self.leak*self.activation(state_weighted + input_weighted)
 
 	def _read_out(self):
-		self.readout = self.readout_weights @ self.extended_state()
+		if self.readout_size > 0:
+			self.readout = self.readout_weights @ self.extended_state()
 
 	# during training, there is no need to read out
 	def iterate_without_readout(self, input_data):
