@@ -6,7 +6,7 @@ np.random.seed(_NP_RANDOM_SEED)
 
 class ESN(object):
 
-	def __init__(self, input_size, readout_size, bias=1.0, activation=np.tanh):
+	def __init__(self, input_size, readout_size, bias=1.0, leak=1.0, activation=np.tanh):
 
 		self.input_size = input_size + 1 # +1 bias
 		self.readout_size = readout_size
@@ -14,6 +14,7 @@ class ESN(object):
 		self.reservoir_weights = None
 
 		self.bias = bias
+		self.leak = leak
 		self.activation = activation
 
 	# call this function at the end of every reservoir generation
@@ -65,7 +66,7 @@ class ESN(object):
 		else:
 			state_weighted = self.reservoir_weights @ self.state
 		input_weighted = self.input_weights @ self.input
-		self.state = self.activation(state_weighted + input_weighted)
+		self.state = (1-self.leak)*self.state + self.leak*self.activation(state_weighted + input_weighted)
 
 	def _read_out(self):
 		self.readout = self.readout_weights @ self.extended_state()
@@ -221,5 +222,6 @@ class ESN(object):
 			weight_matrix = block_matrix
 
 		self.reservoir_weights = weight_matrix
+		# if the spectral radius is non-None, it's not a unit circle anymore
 		self.set_spectral_radius(spectral_radius) # handles None
 		self._post_reservoir_generation()
