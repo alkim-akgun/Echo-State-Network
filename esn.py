@@ -6,12 +6,15 @@ np.random.seed(_NP_RANDOM_SEED)
 
 class ESN(object):
 
-	def __init__(self, input_size, readout_size):
+	def __init__(self, input_size, readout_size, bias=1.0, activation=np.tanh):
 
 		self.input_size = input_size + 1 # +1 bias
 		self.readout_size = readout_size
 
 		self.reservoir_weights = None
+
+		self.bias = bias
+		self.activation = activation
 
 	# call this function at the end of every reservoir generation
 	def _post_reservoir_generation(self):
@@ -49,7 +52,7 @@ class ESN(object):
 
 	def inject_input(self, input_data):
 		input_data = input_data.copy()
-		input_data.insert(0, 1.0) # add bias
+		input_data.insert(0, self.bias) # add bias
 		self.input = np.array([input_data]).T
 
 	def extended_state(self):
@@ -62,11 +65,12 @@ class ESN(object):
 		else:
 			state_weighted = self.reservoir_weights @ self.state
 		input_weighted = self.input_weights @ self.input
-		self.state = np.tanh(state_weighted + input_weighted)
+		self.state = self.activation(state_weighted + input_weighted)
 
 	def _read_out(self):
 		self.readout = self.readout_weights @ self.extended_state()
 
+	# during training, there is no need to read out
 	def iterate_without_readout(self, input_data):
 		self.inject_input(input_data)
 		self._state_update()
@@ -179,7 +183,7 @@ class ESN(object):
 			return (sum(NRMSE)/self.readout_size) # NRMSE
 
 	def get_readout_weights(self):
-		self.readout.copy()
+		return self.readout.copy()
 
 	def unit_circle_reservoir(self, size, dense=False, spectral_radius=None):
 		# generates a reservoir whose eigen-values are conjugate pairs
